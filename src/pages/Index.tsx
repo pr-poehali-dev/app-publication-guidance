@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import Icon from '@/components/ui/icon';
 import { useToast } from '@/hooks/use-toast';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type Driver = {
   id: string;
@@ -52,6 +53,8 @@ export default function Index() {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [theme, setTheme] = useState('light');
+  const [selectedDriver, setSelectedDriver] = useState('all');
+  const [selectedPeriod, setSelectedPeriod] = useState('all');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -147,6 +150,41 @@ export default function Index() {
     { label: 'Задолженность', value: `${totalOverdue.toLocaleString('ru')} ₽`, color: 'text-red-500' },
     { label: 'Переплата', value: `${totalPrepaid.toLocaleString('ru')} ₽`, color: 'text-green-500' },
   ];
+
+  const chartData = useMemo(() => {
+    const filteredPayments = payments.filter(p => 
+      selectedDriver === 'all' || p.driverId === selectedDriver
+    );
+
+    const monthlyData: { [key: string]: { month: string; paid: number; due: number; overdue: number; prepaid: number } } = {};
+
+    filteredPayments.forEach(payment => {
+      const date = new Date(payment.date);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = {
+          month: monthKey,
+          paid: 0,
+          due: 0,
+          overdue: 0,
+          prepaid: 0,
+        };
+      }
+
+      monthlyData[monthKey].paid += payment.paidAmount;
+      monthlyData[monthKey].due += payment.downPayment;
+
+      const diff = payment.paidAmount - payment.downPayment;
+      if (diff < 0) {
+        monthlyData[monthKey].overdue += Math.abs(diff);
+      } else if (diff > 0) {
+        monthlyData[monthKey].prepaid += diff;
+      }
+    });
+
+    return Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
+  }, [payments, selectedDriver]);
 
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'dark bg-background' : 'bg-gray-50'}`}>
@@ -490,7 +528,7 @@ export default function Index() {
                 <div className="flex gap-4 mb-6">
                   <div className="flex-1">
                     <Label>Водитель</Label>
-                    <Select defaultValue="all">
+                    <Select value={selectedDriver} onValueChange={setSelectedDriver}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -506,7 +544,7 @@ export default function Index() {
                   </div>
                   <div className="flex-1">
                     <Label>Период</Label>
-                    <Select defaultValue="all">
+                    <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -522,9 +560,28 @@ export default function Index() {
                     <Button className="bg-orange-500 hover:bg-orange-600">Обновить</Button>
                   </div>
                 </div>
-                <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center border border-gray-200">
-                  <p className="text-gray-400 text-sm">График статистики</p>
-                </div>
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey="month" stroke="#6b7280" />
+                      <YAxis stroke="#6b7280" />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                        formatter={(value: number) => `${value.toLocaleString('ru')} ₽`}
+                      />
+                      <Legend />
+                      <Bar dataKey="paid" name="Оплачено" fill="#10b981" />
+                      <Bar dataKey="due" name="К оплате" fill="#f97316" />
+                      <Bar dataKey="overdue" name="Задолженность" fill="#ef4444" />
+                      <Bar dataKey="prepaid" name="Переплата" fill="#22c55e" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center border border-gray-200">
+                    <p className="text-gray-400 text-sm">Нет данных для отображения. Добавьте платежи.</p>
+                  </div>
+                )}
               </Card>
               <div className="grid grid-cols-4 gap-6">
                 {statsData.map((stat, idx) => (
